@@ -7,73 +7,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Gathin23/cleanyourtv
-          ref: v2.4.0
+          ref: v2.6.0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - name: Patch for Android 7
+      - name: Fixed signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
         run: |
-          python3 - <<'PY'
-          import re
-
-          def patch(path, pairs):
-              s = open(path, encoding='utf-8').read()
-              for old, new in pairs:
-                  assert old in s, 'not found in ' + path + ': ' + old
-                  s = s.replace(old, new)
-              open(path, 'w', encoding='utf-8').write(s)
-
-          patch('launcher/app/build.gradle', [
-              ("minSdk 26", "minSdk 24"),
-              ("        targetCompatibility JavaVersion.VERSION_17\n",
-               "        targetCompatibility JavaVersion.VERSION_17\n"
-               "        coreLibraryDesugaringEnabled true\n"
-               "    }\n"
-               "    lint {\n"
-               "        checkReleaseBuilds false\n"
-               "        abortOnError false\n"
-               "        textReport true\n"
-               "        textOutput file('lint-report.txt')\n"),
-              ("dependencies {\n",
-               "dependencies {\n"
-               "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n"),
-          ])
-
-          base = 'launcher/app/src/main/java/com/gathin/tvhome/'
-
-          patch(base + 'Order.java', [
-              ('        return String.join(",", dockApps);\n',
-               '        StringBuilder sb = new StringBuilder();\n'
-               '        boolean first = true;\n'
-               '        for (String s : dockApps) {\n'
-               '            if (!first) sb.append(\',\');\n'
-               '            sb.append(s);\n'
-               '            first = false;\n'
-               '        }\n'
-               '        return sb.toString();\n'),
-          ])
-
-          patch(base + 'AppLibraryDialog.java', [
-              ('        view.setTypeface(activity.getResources().getFont(R.font.outfit));\n'
-               '        view.setFontVariationSettings("\'wght\' 500");\n',
-               '        android.graphics.Typeface face = androidx.core.content.res.ResourcesCompat.getFont(activity, R.font.outfit);\n'
-               '        if (face != null) view.setTypeface(face);\n'
-               '        if (android.os.Build.VERSION.SDK_INT >= 26) view.setFontVariationSettings("\'wght\' 500");\n'),
-          ])
-          PY
-          git diff --stat
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p ~/.android
+            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "Using the saved signing key"
+          else
+            echo "No saved key, this build gets a new one"
+          fi
       - name: Build
         run: cd launcher && chmod +x gradlew && ./gradlew assembleRelease --console=plain
-      - name: Lint report (API problems for Android 7)
-        continue-on-error: true
-        run: |
-          cd launcher
-          ./gradlew lintRelease --console=plain || true
-          echo "===== API PROBLEMS ====="
-          grep -E "NewApi|Call requires|Class requires|Field requires" app/lint-report.txt | head -60 || true
-          echo "===== END ====="
       - uses: actions/upload-artifact@v4
         with:
-          name: launcher-apk-android7
+          name: launcher-apk
           path: launcher/app/build/outputs/apk/release/app-release.apk
